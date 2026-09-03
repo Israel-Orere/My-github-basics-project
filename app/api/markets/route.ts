@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server'; import {getLiveMarkets} from '@/lib/dreamdex';
+export async function GET(){try{return NextResponse.json({mode:process.env.DREAMDEX_INDEXER_URL?'live':'demo',markets:await getLiveMarkets()})}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Market load failed'},{status:503})}}

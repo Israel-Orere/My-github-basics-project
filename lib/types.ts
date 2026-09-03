@@ -1,0 +1,4 @@
+export type Asset='BTC'|'ETH'; export type Window='15m'|'1h'; export type Side='UP'|'DOWN';
+export type StrategySpec={name:string;asset:Asset;window:Window;side:Side;trigger:{streakSide?:Side;streakLength?:number;maxEntryPrice?:number};sizing:{baseUsd:number;afterWinUsd:number;afterLossUsd:number};risk:{maxLossUsd:number;maxTrades:number;durationHours:number}};
+export type MarketSnapshot={id:string;symbol:string;asset:Asset;window:Window;upPrice:number;downPrice:number;status:'TRADING'|'LOCKED'|'UNKNOWN';closesAt?:string};
+export type BacktestResult={trades:number;wins:number;losses:number;winRate:number;pnl:number;returnPct:number;maxDrawdown:number;endingCapital:number;warnings:string[];equity:number[]};

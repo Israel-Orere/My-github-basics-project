@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server'; import {compileStrategy} from '@/lib/compiler';
+export async function POST(req:Request){const {prompt}=await req.json();if(!prompt||typeof prompt!=='string')return NextResponse.json({error:'Prompt required'},{status:400});return NextResponse.json(compileStrategy(prompt));}

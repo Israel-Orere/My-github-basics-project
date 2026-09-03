@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server'; import {runBacktest} from '@/lib/backtest';
+export async function POST(req:Request){const {strategy}=await req.json();return NextResponse.json(runBacktest(strategy));}
