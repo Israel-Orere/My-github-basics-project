@@ -32,13 +32,16 @@ export async function POST(req:Request){
 
   // Binary pools are recycled across successive markets. Fetch each pool's rollups in bounded
   // chunks once, then isolate a market by its own [tradingStart, expiry) window below.
+  // For an "all history" request, never scan before the first market we actually retrieved.
+  const firstMarketStart=Math.min(...markets.map((m:any)=>Number(m.tradingStart||Number(m.expiry||0)-intervalSec)).filter((n:number)=>Number.isFinite(n)&&n>0));
+  const historyFrom=Math.max(from,Number.isFinite(firstMarketStart)?firstMarketStart:from);
   const pools=[...new Set(markets.map((m:any)=>String(m.poolAddress).toLowerCase()))];
   const candlesByPool=new Map<string,CandleRow[]>();let historyErrors=0;
   const chunkSec=intervalSec*450;
   await Promise.all(pools.map(async pool=>{
     const all:CandleRow[]=[];
     try{
-      for(let cursor=from;cursor<=to;cursor+=chunkSec){
+      for(let cursor=historyFrom;cursor<=to;cursor+=chunkSec){
         const end=Math.min(to,cursor+chunkSec-1);
         const batch=await client.getCandles(pool,intervalSec,{from:cursor,to:end,limit:500});
         if(Array.isArray(batch))all.push(...batch);
@@ -47,7 +50,7 @@ export async function POST(req:Request){
     }catch{historyErrors++;candlesByPool.set(pool,[])}
   }));
 
-  let cash=startingCapital,peak=cash,maxDD=0,wins=0,losses=0,totalPnl=0,size=s.sizing.baseUsd,sessionPnl=0,sessionTrades=0,sessionStart=from,marketsWithoutPrice=0;
+  let cash=startingCapital,peak=cash,maxDD=0,wins=0,losses=0,totalPnl=0,size=s.sizing.baseUsd,sessionPnl=0,sessionTrades=0,sessionStart=historyFrom,marketsWithoutPrice=0;
   const equity=[cash],tradeLog:Trade[]=[];const prior:(('UP'|'DOWN')|null)[]=[];const streakLen=s.trigger.streakLength||0,streakSide=s.trigger.streakSide||s.side,cap=s.trigger.maxEntryPrice||1;
   for(const m of markets){
     const expiry=Number(m.expiry||0),start=Number(m.tradingStart||expiry-intervalSec);
@@ -74,7 +77,7 @@ export async function POST(req:Request){
   if(marketsWithoutPrice)warnings.push(`${marketsWithoutPrice} qualifying markets had no recorded fills at this candle resolution, so no entry was assumed.`);
   if(truncated)warnings.push('History exceeded the current 20,000-market scan cap; results cover the newest available portion of the selected range.');
   warnings.push(`Replay uses real finalized DreamDEX outcomes and ${s.window} pool OHLCV buckets made from actual fills. A trade is simulated only when the observed market reaches your price cap, with entry charged at the cap; queue position and transaction latency are not modeled.`);
-  return NextResponse.json({source:'dreamdex-finalized-markets',from,to,markets:markets.length,trades,wins,losses,winRate:trades?n2(wins/trades*100):0,pnl:n2(totalPnl),returnPct:n2(totalPnl/startingCapital*100),maxDrawdown:n2(maxDD),endingCapital:n2(cash),equity,tradeLog,warnings});
+  return NextResponse.json({source:'dreamdex-finalized-markets',from:historyFrom,to,markets:markets.length,trades,wins,losses,winRate:trades?n2(wins/trades*100):0,pnl:n2(totalPnl),returnPct:n2(totalPnl/startingCapital*100),maxDrawdown:n2(maxDD),endingCapital:n2(cash),equity,tradeLog,warnings});
  }catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Backtest failed.'},{status:500})}
  finally{try{await Promise.resolve(exchange?.close?.())}catch{}}
 }
