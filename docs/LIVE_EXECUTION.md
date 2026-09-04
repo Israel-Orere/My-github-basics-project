@@ -1,0 +1,1 @@
+DreamForge treats a transaction hash as submission proof, not fill proof. Binary market IOC orders are counted in strategy risk state only when the SDK returns one or more decoded fills from the mined transaction.
