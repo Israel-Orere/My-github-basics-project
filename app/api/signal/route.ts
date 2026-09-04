@@ -2,9 +2,16 @@ import {NextResponse} from 'next/server';
 import {createReadExchange} from '@/lib/dreamdex';
 import type {StrategySpec} from '@/lib/types';
 
-type FinalizedRow={marketId?:string;symbol?:string;asset?:string;underlying?:string;intervalSec?:number;window?:string;status?:string|number;settlement?:string;result?:string;winningOutcome?:string;closedAt?:number|string;expiry?:number|string};
-
-function sideOf(r:FinalizedRow){const s=String(r.settlement??r.result??r.winningOutcome??'').toUpperCase();return s.includes('UP')||s.includes('YES')?'UP':s.includes('DOWN')||s.includes('NO')?'DOWN':null}
-function matches(r:FinalizedRow,s:StrategySpec){const label=String(r.symbol??'').toUpperCase();const asset=String(r.asset??r.underlying??(label.includes('ETH')?'ETH':label.includes('BTC')?'BTC':'')).toUpperCase();const cadence=s.window==='15m'?900:3600;const interval=Number(r.intervalSec??(String(r.window).toLowerCase()==='15m'?900:String(r.window).toLowerCase()==='1h'?3600:0));return asset===s.asset&&(!interval||interval===cadence)}
-
-export async function POST(req:Request){let exchange:any;try{const {strategy}=await req.json() as {strategy:StrategySpec};if(!strategy?.trigger?.streakLength||!strategy.trigger.streakSide)return NextResponse.json({ready:true,reason:'No settlement streak required.',history:[]});exchange=createReadExchange();const client:any=exchange.client;let rows:FinalizedRow[]=[];if(typeof client.listBinaryMarkets==='function'){const out=await client.listBinaryMarkets({status:'Finalized'});rows=Array.isArray(out)?out:(out?.markets??out?.items??[])}else if(typeof (exchange as any).listBinaryMarkets==='function'){const out=await (exchange as any).listBinaryMarkets({status:'Finalized'});rows=Array.isArray(out)?out:(out?.markets??out?.items??[])}else{return NextResponse.json({ready:false,reason:'Finalized settlement feed is unavailable; execution stays locked.',history:[]},{status:503})}const relevant=rows.filter(r=>matches(r,strategy)).sort((a,b)=>Number(b.closedAt??b.expiry??0)-Number(a.closedAt??a.expiry??0));const n=strategy.trigger.streakLength;const recent=relevant.slice(0,n).map(r=>({symbol:r.symbol??r.marketId,settlement:sideOf(r)}));const ready=recent.length===n&&recent.every(r=>r.settlement===strategy.trigger.streakSide);return NextResponse.json({ready,reason:ready?`Last ${n} ${strategy.asset} ${strategy.window} markets settled ${strategy.trigger.streakSide}.`:`Waiting for ${n} consecutive ${strategy.trigger.streakSide} settlements.`,history:recent});}catch(e){return NextResponse.json({ready:false,reason:e instanceof Error?e.message:'Could not verify settled markets.',history:[]},{status:503})}finally{try{await Promise.resolve(exchange?.close?.())}catch{}}}
+export async function POST(req:Request){
+ let exchange:any;
+ try{
+  const {strategy}=await req.json() as {strategy:StrategySpec};
+  if(!strategy?.trigger?.streakLength||!strategy.trigger.streakSide)return NextResponse.json({ready:true,reason:'No settlement streak required.',history:[]});
+  exchange=createReadExchange();const client:any=exchange.client;const n=strategy.trigger.streakLength;const intervalSec=strategy.window==='15m'?900:3600;
+  const rows=await client.listBinaryMarkets({status:'Finalized',asset:strategy.asset,intervalSec,orderBy:'newest',limit:Math.max(12,n+4),offset:0} as any);
+  const recent=(rows||[]).sort((a:any,b:any)=>Number(b.expiry||0)-Number(a.expiry||0)).slice(0,n).map((m:any)=>({marketId:m.marketId,symbol:m.question||m.marketId,settlement:m.winningOutcome===0?'UP':m.winningOutcome===1?'DOWN':null,expiry:Number(m.expiry||0)}));
+  const ready=recent.length===n&&recent.every((r:any)=>r.settlement===strategy.trigger.streakSide);
+  return NextResponse.json({ready,reason:ready?`The last ${n} ${strategy.asset} ${strategy.window} contracts settled ${strategy.trigger.streakSide}.`:`Waiting for ${n} ${strategy.trigger.streakSide} results in a row.`,history:recent});
+ }catch(e){return NextResponse.json({ready:false,reason:e instanceof Error?e.message:'Could not verify finalized DreamDEX results.',history:[]},{status:503})}
+ finally{try{await Promise.resolve(exchange?.close?.())}catch{}}
+}
