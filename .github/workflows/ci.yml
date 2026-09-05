@@ -19,3 +19,8 @@ jobs:
       - run: npm run test:dreamdex
       - run: npm run test:event-history
       - run: npm run build
+      - name: Test deployed complex-agent compiler
+        if: github.event_name == 'pull_request'
+        env:
+          DREAMFORGE_PREVIEW_URL: https://my-github-basics-project-git-age-b0536e-orerei89-5247s-projects.vercel.app
+        run: npm run test:agent-preview
