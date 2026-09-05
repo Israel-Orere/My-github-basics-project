@@ -17,4 +17,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:strategy
       - run: npm run test:dreamdex
+      - run: npm run test:event-history
       - run: npm run build
+      - name: Verify deployed production complex-agent compiler
+        if: github.event_name == 'push'
+        env:
+          DREAMFORGE_URL: https://my-github-basics-project.vercel.app
+          EXPECTED_SHA: ${{ github.sha }}
+        run: npm run test:agent-live
