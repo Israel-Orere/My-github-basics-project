@@ -16,4 +16,5 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run test:strategy
+      - run: npm run test:dreamdex
       - run: npm run build
