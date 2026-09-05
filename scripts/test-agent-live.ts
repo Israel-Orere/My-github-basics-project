@@ -23,7 +23,7 @@ async function main(){
  await waitForRelease();
  const response=await fetch(`${base!.replace(/\/$/,'')}/api/compile`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt})});
  const raw=await response.text();assert.ok(response.ok,`production compile failed: ${response.status} ${raw.slice(0,1000)}`);const body=JSON.parse(raw);
- assert.equal(body.compiler,'agent','deployed production must use the AI compiler, not fallback');
+ assert.equal(body.compiler,'agent',`deployed production must use the AI compiler, not fallback; ${(body.interpretation?.questions||[]).join(' | ')}`);
  assert.equal(body.interpretation?.needsClarification,false,`unambiguous strategy should compile without questions: ${(body.interpretation?.questions||[]).join(' | ')}`);
  assert.equal(body.asset,'BTC');assert.equal(body.window,'15m');assert.equal(body.side,'UP');assert.ok(Math.abs(body.trigger.maxEntryPrice-.58)<1e-9,'58-cent ceiling must be preserved');
  assert.equal(body.sizing.baseUsd,7);assert.equal(body.sizing.afterWinUsd,7);assert.equal(body.sizing.afterLossUsd,3);assert.equal(body.risk.maxLossUsd,21);assert.equal(body.risk.maxTrades,12);assert.equal(body.risk.durationHours,8);
