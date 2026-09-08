@@ -1,0 +1,39 @@
+1
+00:00:00,000 --> 00:00:18,000
+DreamForge turns a plain-English trading idea into deterministic DreamDEX Event Contract rules. AI helps interpret intent; deterministic code controls the strategy, backtest, risk limits and execution.
+
+2
+00:00:18,000 --> 00:00:38,000
+I can describe a complex BTC 15-minute setup in normal language. DreamForge restates the exact conditions, shows assumptions and questions, and refuses to unlock execution if the interpretation is ambiguous.
+
+3
+00:00:38,000 --> 00:00:58,000
+The strategy can combine rolling ranges, RSI, moving averages, volume confirmation, an Event Contract entry-price cap, sizing rules and hard session risk limits.
+
+4
+00:00:58,000 --> 00:01:20,000
+The chart is interactive, not a static image. It uses TradingView Lightweight Charts with live DreamDEX underlying data. Indicators appear on the price chart or in their own panes, and chart controls can rewrite the deterministic strategy.
+
+5
+00:01:20,000 --> 00:01:34,000
+For example, changing the RSI band or clicking a price threshold updates the strategy specification itself. These are executable rules, not cosmetic drawings.
+
+6
+00:01:34,000 --> 00:01:56,000
+Once I confirm, DreamForge locks the exact deterministic specification. The backtester scans finalized DreamDEX Event Contracts, evaluates signals at completed-data boundaries, and checks whether the binary-contract price actually reached my cap after the signal.
+
+7
+00:01:56,000 --> 00:02:12,000
+The result shows return, P and L, win rate, drawdown, trades, the exact rules replayed, and how often each rule was true historically.
+
+8
+00:02:12,000 --> 00:02:34,000
+Live mode automatically selects the DreamDEX contract matching the strategy and checks the signal, Event Contract price, on-chain market status, session risk budget and wallet approval before any write.
+
+9
+00:02:34,000 --> 00:02:48,000
+If a condition is not ready, DreamForge tells me exactly why and keeps trading locked. If every gate passes, the wallet still has to approve the transaction.
+
+10
+00:02:48,000 --> 00:02:58,000
+DreamForge is built with Next.js, TypeScript, the Somnia Markets SDK, viem and TradingView Lightweight Charts on Shannon testnet. Advanced Event Contract strategies, without hiding the rules that control funds.
