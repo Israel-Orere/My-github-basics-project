@@ -1,6 +1,7 @@
 import type {StrategySpec} from './types';
 
 function money(text:string,patterns:RegExp[]){let best:RegExpMatchArray|undefined;for(const re of patterns){const flags=re.flags.includes('g')?re.flags:`${re.flags}g`;for(const m of text.matchAll(new RegExp(re.source,flags)))if(!best||Number(m.index)>=Number(best.index))best=m}return best?Number(best[1]):undefined}
+function countLast(text:string,patterns:RegExp[]){let best:RegExpMatchArray|undefined;for(const re of patterns){const flags=re.flags.includes('g')?re.flags:`${re.flags}g`;for(const m of text.matchAll(new RegExp(re.source,flags)))if(!best||Number(m.index)>=Number(best.index))best=m}return best?Number(best[1]):undefined}
 
 export function repairLocalStrategy(prompt:string,strategy:StrategySpec):StrategySpec{
   const base=money(prompt,[
@@ -12,17 +13,30 @@ export function repairLocalStrategy(prompt:string,strategy:StrategySpec):Strateg
   const afterLossBefore=money(prompt,[/\$\s*(\d+(?:\.\d+)?)\s*(?:after\s+(?:a\s+)?loss|after\s+losses)/i]);
   const afterLoss=afterLossBefore??money(prompt,[/(?:after\s+(?:a\s+)?loss|after\s+losses|reduce\s+to)[^$\d]{0,18}\$\s*(\d+(?:\.\d+)?)/i]);
   const maxLoss=money(prompt,[/(?:stop|quit|halt)[^.\n]{0,45}?(?:los(?:e|ing)|loss)[^$\d]{0,10}\$\s*(\d+(?:\.\d+)?)/i]);
+  const maxTrades=countLast(prompt,[
+    /(?:max(?:imum)?|stop\s+after|no\s+more\s+than|after)\s*(\d+)\s*trades?/i,
+    /(?:stop|quit|halt)[^.\n]{0,70}?(?:\bor\b|\band\b)\s*(?:after\s+)?(\d+)\s*trades?/i,
+    /(?:\bor\b|\band\b)\s*(?:after\s+)?(\d+)\s*trades?\b/i,
+  ]);
+  const durationHours=countLast(prompt,[/(?:for|over|within|after|or)\s*(\d+(?:\.\d+)?)\s*(?:h|hrs?|hours?)\b/i]);
   const sizing={
     baseUsd:base??strategy.sizing.baseUsd,
     afterWinUsd:afterWin??(base??strategy.sizing.afterWinUsd),
     afterLossUsd:afterLoss??strategy.sizing.afterLossUsd,
   };
-  const risk={...strategy.risk,maxLossUsd:maxLoss??strategy.risk.maxLossUsd};
+  const risk={
+    ...strategy.risk,
+    maxLossUsd:maxLoss??strategy.risk.maxLossUsd,
+    maxTrades:maxTrades??strategy.risk.maxTrades,
+    durationHours:durationHours??strategy.risk.durationHours,
+  };
   if(!strategy.interpretation)return{...strategy,sizing,risk};
   const assumptions=strategy.interpretation.assumptions.filter(a=>{
     if(base!==undefined&&/initial stake/i.test(a))return false;
     if(afterLoss!==undefined&&/after-loss size/i.test(a))return false;
     if(maxLoss!==undefined&&/max-loss stop/i.test(a))return false;
+    if(maxTrades!==undefined&&/trade-count stop/i.test(a))return false;
+    if(durationHours!==undefined&&/risk-session duration/i.test(a))return false;
     return true;
   });
   return{...strategy,sizing,risk,interpretation:{...strategy.interpretation,assumptions,sizing:[`Start at $${sizing.baseUsd}; after a win use $${sizing.afterWinUsd}; after a loss use $${sizing.afterLossUsd}.`],risk:[`Stop at -$${risk.maxLossUsd}, ${risk.maxTrades} trades, or ${risk.durationHours} hours.`]}};
