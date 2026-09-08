@@ -2,7 +2,8 @@ import {NextResponse} from 'next/server';
 import {createReadExchange} from '@/lib/dreamdex';
 import {createStrategyEvaluator,evaluationStepSeconds,indicatorWarmup,requiredTimeframes,type SpotBar} from '@/lib/strategy-engine';
 import {fetchSpotBars} from '@/lib/spot-history';
-import type {StrategySpec} from '@/lib/types';
+import {fetchSpotBarsRestRange} from '@/lib/spot-rest';
+import type {StrategyCondition,StrategySpec} from '@/lib/types';
 
 type Side='UP'|'DOWN';
 type Trade={marketId:string;time:number;signalTime:number;side:Side;settlement:Side;entry:number;stake:number;pnl:number;equity:number};
@@ -10,6 +11,7 @@ type CandleRow={bucketStart:string;high:string;low:string};
 type HistoryJob={pool:string;from:number;to:number};
 type Candidate={market:any;signalTime:number};
 type RuleStat={label:string;checks:number;passes:number;lastDetail:string};
+type Origin={operatorId:number;venueId:string};
 const n2=(n:number)=>Number(n.toFixed(2));
 const CACHE_TTL_MS=5*60_000;
 const cache=new Map<string,{expires:number;payload:any}>();
@@ -21,6 +23,15 @@ function firstTouch(rows:CandleRow[],start:number,expiry:number,decimals:number,
 function compactCache(){if(cache.size<=30)return;for(const [k,v] of cache){if(v.expires<Date.now()||cache.size>24)cache.delete(k)}}
 function winningSide(v:unknown):Side|null{const n=Number(v);return n===0?'UP':n===1?'DOWN':null}
 function mayHaveTrades(m:any){const n=Number(m?.tradeCount);return Number.isFinite(n)?n>0:true}
+function maxSettlementWarmup(s:StrategySpec){let n=Math.max(0,Number(s.trigger?.streakLength)||0);for(const g of s.conditionGroups||[])for(const c of g.conditions)if(c.type==='SETTLEMENT_STREAK')n=Math.max(n,c.length);return n}
+function volumeScore(m:any){const q=Number(m?.cumulativeQuoteVolume||0),t=Number(m?.tradeCount||0);return (Number.isFinite(q)?q:0)+(Number.isFinite(t)?t:0)}
+async function resolveActiveOrigin(client:any,asset:string,intervalSec:number):Promise<Origin>{
+ const live:any[]=await client.listLiveBinaryMarkets({asset,intervalSec,limit:50,offset:0} as any);
+ const attributed=live.filter(m=>Number.isInteger(Number(m?.operatorId))&&typeof m?.venueId==='string'&&m.venueId.startsWith('0x'));
+ if(!attributed.length)throw new Error(`No active attributed ${asset} ${intervalSec===900?'15m':'1h'} DreamDEX series is available to anchor this backtest.`);
+ attributed.sort((a,b)=>volumeScore(b)-volumeScore(a)||Number(a.expiry||0)-Number(b.expiry||0));
+ return{operatorId:Number(attributed[0].operatorId),venueId:String(attributed[0].venueId)};
+}
 
 export const maxDuration=60;
 export async function POST(req:Request){
@@ -34,32 +45,41 @@ export async function POST(req:Request){
   if(hit&&hit.expires>Date.now())return NextResponse.json({...hit.payload,cached:true,durationMs:Date.now()-started});compactCache();
   stage='connecting to DreamDEX';exchange=createReadExchange();const client:any=exchange.client;
 
+  // Backtest one real rolling DreamDEX series, not every experimental/operator venue
+  // that happens to share the same asset and cadence. The active venue is discovered
+  // at runtime so this survives venue rotation without a hard-coded ID.
+  stage='identifying the active DreamDEX series';
+  const origin=await resolveActiveOrigin(client,s.asset,intervalSec);
+
   stage='loading finalized DreamDEX markets';
-  const rows:any[]=[];const pageSize=250;let offset=0,truncated=false;
-  for(let page=0;page<80;page++){
-   const batch=await client.listBinaryMarkets({status:'Finalized',asset:s.asset,intervalSec,orderBy:'newest',limit:pageSize,offset} as any);
+  const rows:any[]=[];const pageSize=500;let offset=0,truncated=false;
+  for(let page=0;page<40;page++){
+   const batch=await client.listBinaryMarkets({status:'Finalized',asset:s.asset,intervalSec,operatorId:origin.operatorId,venueId:origin.venueId,orderBy:'newest',limit:pageSize,offset} as any);
    if(!Array.isArray(batch)||!batch.length)break;rows.push(...batch);offset+=batch.length;
    const expiries=batch.map((m:any)=>Number(m.expiry||0)).filter(Boolean),oldest=expiries.length?Math.min(...expiries):0;
-   if(batch.length<pageSize||(oldest&&oldest<from))break;if(page===79)truncated=true;
+   if(batch.length<pageSize||(oldest&&oldest<from))break;if(page===39)truncated=true;
   }
   const markets=rows.filter((m:any)=>{const t=Number(m.expiry||0);return t>=from&&t<=to&&String(m.asset).toUpperCase()===s.asset&&Number(m.intervalSec||intervalSec)===intervalSec}).sort((a:any,b:any)=>Number(a.expiry)-Number(b.expiry));
-  if(!markets.length){const payload={source:'dreamdex-agent-replay',from,to,markets:0,candidateMarkets:0,trades:0,wins:0,losses:0,winRate:0,pnl:0,returnPct:0,maxDrawdown:0,endingCapital:startingCapital,equity:[startingCapital],tradeLog:[],ruleStats:[],warnings:['No finalized DreamDEX markets were found for this asset, contract window and date range.']};cache.set(cacheKey,{expires:Date.now()+CACHE_TTL_MS,payload});return NextResponse.json({...payload,cached:false,durationMs:Date.now()-started})}
+  const streakWarmup=maxSettlementWarmup(s),priorSeed=rows.filter((m:any)=>Number(m.expiry||0)<from).sort((a:any,b:any)=>Number(a.expiry)-Number(b.expiry)).map((m:any)=>winningSide(m.winningOutcome)).filter((x:Side|null):x is Side=>!!x).slice(-streakWarmup);
+  if(!markets.length){const payload={source:'dreamdex-agent-replay',from,to,markets:0,candidateMarkets:0,trades:0,wins:0,losses:0,winRate:0,pnl:0,returnPct:0,maxDrawdown:0,endingCapital:startingCapital,equity:[startingCapital],tradeLog:[],ruleStats:[],origin,warnings:['No finalized DreamDEX markets were found for the active series in this date range.']};cache.set(cacheKey,{expires:Date.now()+CACHE_TTL_MS,payload});return NextResponse.json({...payload,cached:false,durationMs:Date.now()-started})}
 
-  // Historical backtests are indexer-driven. If the indexer does not have a concrete winner,
-  // skip that market rather than performing hundreds of slow chain RPC fallbacks inside one request.
-  // Execution-time safety still reads the chain separately in the live workflow.
   const settlementById=new Map<string,Side|null>();for(const m of markets)settlementById.set(m.marketId,winningSide(m.winningOutcome));
   const missingIndexedSettlements=markets.reduce((n,m)=>n+(settlementById.get(m.marketId)?0:1),0);
 
   stage='loading underlying indicator history';
-  const starts=markets.map((m:any)=>Number(m.tradingStart||Number(m.expiry)-intervalSec)).filter((x:number)=>Number.isFinite(x)&&x>0),firstMarketStart=starts.length?Math.min(...starts):from,historyFrom=Math.max(from,firstMarketStart),barsByTf:Record<string,SpotBar[]>={};
-  const timeframes=requiredTimeframes(s),warmup=indicatorWarmup(s);await Promise.all(timeframes.map(async tf=>{barsByTf[tf]=await fetchSpotBars(exchange,s.asset,tf,historyFrom,to,warmup)}));
-  const evaluator=createStrategyEvaluator(s,barsByTf),step=evaluationStepSeconds(s),binaryStep=Math.min(intervalSec,step),prior:Side[]=[],candidates:Candidate[]=[],ruleStatsMap=new Map<string,RuleStat>();
+  const starts=markets.map((m:any)=>Number(m.tradingStart||Number(m.expiry)-intervalSec)).filter((x:number)=>Number.isFinite(x)&&x>0),firstMarketStart=starts.length?Math.min(...starts):from,historyFrom=Math.max(from,firstMarketStart),barsByTf:Record<string,SpotBar[]>={},spotWarnings:string[]=[];
+  const timeframes=requiredTimeframes(s),warmup=indicatorWarmup(s);
+  await Promise.all(timeframes.map(async tf=>{
+   try{barsByTf[tf]=await fetchSpotBarsRestRange(s.asset,tf,historyFrom,to,warmup)}
+   catch(restError){
+    try{barsByTf[tf]=await fetchSpotBars(exchange,s.asset,tf,historyFrom,to,warmup);if(!barsByTf[tf].length)throw new Error('indexer returned no bars');spotWarnings.push(`${tf} indicator history used the DreamDEX indexer fallback because REST history failed: ${restError instanceof Error?restError.message:String(restError)}`)}
+    catch(indexerError){throw new Error(`${tf} spot history failed from both DreamDEX sources. REST: ${restError instanceof Error?restError.message:String(restError)}. Indexer: ${indexerError instanceof Error?indexerError.message:String(indexerError)}`)}
+   }
+  }));
+  const evaluator=createStrategyEvaluator(s,barsByTf),step=evaluationStepSeconds(s),binaryStep=Math.min(intervalSec,step),prior:Side[]=[...priorSeed],candidates:Candidate[]=[],ruleStatsMap=new Map<string,RuleStat>();
   stage='evaluating strategy conditions';
   for(const m of markets){const settlement=settlementById.get(m.marketId)??null,expiry=Number(m.expiry),start=Number(m.tradingStart||expiry-intervalSec);if(!settlement)continue;let signalTime:number|null=null;for(let t=start;t<expiry;t+=step){const evaluated=evaluator.evaluate(t,prior);for(const d of evaluated.details||[]){const key=d.label||'Unnamed rule',stat=ruleStatsMap.get(key)||{label:key,checks:0,passes:0,lastDetail:''};stat.checks++;if(d.passed)stat.passes++;stat.lastDetail=d.detail||'';ruleStatsMap.set(key,stat)}if(evaluated.passed){signalTime=t;break}}if(signalTime!==null)candidates.push({market:m,signalTime});prior.push(settlement)}
 
-  // Only pools with recorded trades can possibly provide a historical executable price.
-  // This avoids hundreds of empty candle requests for zero-liquidity markets.
   stage='loading post-signal event-contract prices';
   const pricedCandidates=candidates.filter(c=>mayHaveTrades(c.market));
   const windowsByPool=new Map<string,{start:number;end:number}[]>();for(const c of pricedCandidates){const m=c.market,expiry=Number(m.expiry),pool=String(m.poolAddress).toLowerCase(),arr=windowsByPool.get(pool)||[];arr.push({start:c.signalTime,end:expiry});windowsByPool.set(pool,arr)}
@@ -69,8 +89,8 @@ export async function POST(req:Request){
   stage='replaying fills and risk controls';
   let cash=startingCapital,peak=cash,maxDD=0,wins=0,losses=0,totalPnl=0,size=s.sizing.baseUsd,sessionPnl=0,sessionTrades=0,sessionStart=historyFrom,marketsWithoutPrice=0;const equity=[cash],tradeLog:Trade[]=[],cap=s.trigger.maxEntryPrice||.99;
   for(const c of candidates){const m=c.market,settlement=settlementById.get(m.marketId);if(!settlement)continue;const expiry=Number(m.expiry);if(c.signalTime-sessionStart>=Math.max(1,s.risk.durationHours)*3600){sessionStart=c.signalTime;sessionPnl=0;sessionTrades=0;size=s.sizing.baseUsd}const riskRoom=Math.max(0,s.risk.maxLossUsd+sessionPnl);if(sessionTrades>=s.risk.maxTrades||riskRoom<=0)continue;if(!mayHaveTrades(m)){marketsWithoutPrice++;continue}const decimals=Number(m.quoteDecimals??6),poolRows=candlesByPool.get(String(m.poolAddress).toLowerCase())||[],idx=lowerBound(poolRows,c.signalTime),hasPrice=idx<poolRows.length&&Number(poolRows[idx]?.bucketStart)<expiry;if(!hasPrice){marketsWithoutPrice++;continue}const entryTime=firstTouch(poolRows,c.signalTime,expiry,decimals,s.side,cap);if(entryTime===null)continue;const stake=Math.min(size,riskRoom);if(stake<=0)continue;const won=settlement===s.side,tradePnl=won?stake/cap-stake:-stake;cash+=tradePnl;totalPnl+=tradePnl;sessionPnl+=tradePnl;sessionTrades++;won?wins++:losses++;size=won?s.sizing.afterWinUsd:s.sizing.afterLossUsd;peak=Math.max(peak,cash);maxDD=Math.max(maxDD,peak?((peak-cash)/peak)*100:0);equity.push(n2(cash));tradeLog.push({marketId:m.marketId,time:entryTime,signalTime:c.signalTime,side:s.side,settlement,entry:cap,stake:n2(stake),pnl:n2(tradePnl),equity:n2(cash)})}
-  const trades=tradeLog.length,warnings:string[]=[];if(trades<20)warnings.push('Small sample: fewer than 20 historical trades matched this strategy.');if(missingIndexedSettlements)warnings.push(`${missingIndexedSettlements} finalized market${missingIndexedSettlements===1?'':'s'} had no indexed concrete winner and were skipped instead of slowing the replay with chain lookups.`);if(historyErrors)warnings.push(`${historyErrors} historical binary-price batch${historyErrors===1?'':'es'} could not be loaded; affected candidate markets were skipped.`);if(marketsWithoutPrice)warnings.push(`${marketsWithoutPrice} signal-qualified markets had no recorded binary-contract fills after the signal, so no entry was assumed.`);if(truncated)warnings.push('History exceeded the current 20,000-market scan cap; results cover the newest available portion of the selected range.');warnings.push(`Complex signals were evaluated through each contract at ${Math.round(step/60)}-minute completed-data boundaries. Post-signal binary prices were replayed at ${Math.round(binaryStep/60)}-minute resolution; entries are conservatively charged at your maximum accepted probability. Queue position, gas and transaction latency are not modeled.`);
+  const trades=tradeLog.length,warnings:string[]=[...spotWarnings];if(trades<20)warnings.push('Small sample: fewer than 20 historical trades matched this strategy.');if(missingIndexedSettlements)warnings.push(`${missingIndexedSettlements} finalized market${missingIndexedSettlements===1?'':'s'} had no indexed concrete winner and were skipped instead of slowing the replay with chain lookups.`);if(historyErrors)warnings.push(`${historyErrors} historical binary-price batch${historyErrors===1?'':'es'} could not be loaded; affected candidate markets were skipped.`);if(marketsWithoutPrice)warnings.push(`${marketsWithoutPrice} signal-qualified markets had no recorded binary-contract fills after the signal, so no entry was assumed.`);if(truncated)warnings.push('History exceeded the current 20,000-market scan cap; results cover the newest available portion of the selected range.');warnings.push(`Backtest is scoped to the currently active DreamDEX venue (operator ${origin.operatorId}) for ${s.asset} ${s.window}, preventing unrelated test/operator series from being mixed into the replay.`);warnings.push(`Complex signals were evaluated through each contract at ${Math.round(step/60)}-minute completed-data boundaries. Post-signal binary prices were replayed at ${Math.round(binaryStep/60)}-minute resolution; entries are conservatively charged at your maximum accepted probability. Queue position, gas and transaction latency are not modeled.`);
   const ruleStats=[...ruleStatsMap.values()].map(x=>({...x,passRate:x.checks?n2(x.passes/x.checks*100):0})).sort((a,b)=>a.label.localeCompare(b.label));
-  const payload={source:'dreamdex-agent-replay',from:historyFrom,to,markets:markets.length,candidateMarkets:candidates.length,historyBatches:jobs.length,evaluationStepSec:step,binaryPriceStepSec:binaryStep,trades,wins,losses,winRate:trades?n2(wins/trades*100):0,pnl:n2(totalPnl),returnPct:n2(totalPnl/startingCapital*100),maxDrawdown:n2(maxDD),endingCapital:n2(cash),equity,tradeLog,ruleStats,warnings};cache.set(cacheKey,{expires:Date.now()+CACHE_TTL_MS,payload});return NextResponse.json({...payload,cached:false,durationMs:Date.now()-started});
+  const payload={source:'dreamdex-agent-replay',from:historyFrom,to,origin,markets:markets.length,candidateMarkets:candidates.length,historyBatches:jobs.length,evaluationStepSec:step,binaryPriceStepSec:binaryStep,trades,wins,losses,winRate:trades?n2(wins/trades*100):0,pnl:n2(totalPnl),returnPct:n2(totalPnl/startingCapital*100),maxDrawdown:n2(maxDD),endingCapital:n2(cash),equity,tradeLog,ruleStats,warnings};cache.set(cacheKey,{expires:Date.now()+CACHE_TTL_MS,payload});return NextResponse.json({...payload,cached:false,durationMs:Date.now()-started});
  }catch(e){const message=e instanceof Error?e.message:'Backtest failed.';console.error('dreamforge-backtest-failed',{stage,message,durationMs:Date.now()-started});return NextResponse.json({error:`Backtest failed while ${stage}: ${message}`,stage},{status:500})}finally{try{await Promise.resolve(exchange?.close?.())}catch{}}
 }
