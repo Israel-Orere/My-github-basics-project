@@ -7,14 +7,10 @@ export function repairLocalStrategy(prompt:string,strategy:StrategySpec):Strateg
     /(?:risk|start(?:\s+with)?|stake|position(?:\s+size)?)[^$\d]{0,12}\$\s*(\d+(?:\.\d+)?)/i,
     /\$\s*(\d+(?:\.\d+)?)\s*(?:initially|to\s+start|at\s+first)/i,
   ]);
-  const afterWin=money(prompt,[
-    /\$\s*(\d+(?:\.\d+)?)\s*(?:after\s+(?:a\s+)?win|after\s+wins)/i,
-    /(?:after\s+(?:a\s+)?win|after\s+wins|stay\s+at)[^$\d]{0,18}\$\s*(\d+(?:\.\d+)?)/i,
-  ]);
-  const afterLoss=money(prompt,[
-    /\$\s*(\d+(?:\.\d+)?)\s*(?:after\s+(?:a\s+)?loss|after\s+losses)/i,
-    /(?:after\s+(?:a\s+)?loss|after\s+losses|reduce\s+to)[^$\d]{0,18}\$\s*(\d+(?:\.\d+)?)/i,
-  ]);
+  const afterWinBefore=money(prompt,[/\$\s*(\d+(?:\.\d+)?)\s*(?:after\s+(?:a\s+)?win|after\s+wins)/i]);
+  const afterWin=afterWinBefore??money(prompt,[/(?:after\s+(?:a\s+)?win|after\s+wins|stay\s+at)[^$\d]{0,18}\$\s*(\d+(?:\.\d+)?)/i]);
+  const afterLossBefore=money(prompt,[/\$\s*(\d+(?:\.\d+)?)\s*(?:after\s+(?:a\s+)?loss|after\s+losses)/i]);
+  const afterLoss=afterLossBefore??money(prompt,[/(?:after\s+(?:a\s+)?loss|after\s+losses|reduce\s+to)[^$\d]{0,18}\$\s*(\d+(?:\.\d+)?)/i]);
   const maxLoss=money(prompt,[/(?:stop|quit|halt)[^.\n]{0,45}?(?:los(?:e|ing)|loss)[^$\d]{0,10}\$\s*(\d+(?:\.\d+)?)/i]);
   const sizing={
     baseUsd:base??strategy.sizing.baseUsd,
