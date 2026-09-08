@@ -19,17 +19,22 @@ const strategy:StrategySpec={
 };
 
 async function main(){
+  // Match the product's default backtest selection. This is the range users hit first,
+  // so CI must prove it stays comfortably inside the 60s serverless route budget.
   const to=Math.floor(Date.now()/1000)-900;
-  const from=to-7*86400;
+  const from=to-30*86400;
   const req=new Request('http://localhost/api/backtest',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({strategy,from,to,startingCapital:100})});
   const started=Date.now();
   const res=await POST(req);
   const raw=await res.text();
-  assert.ok(res.ok,`backtest route failed: ${res.status} ${raw.slice(0,1500)}`);
+  const elapsed=Date.now()-started;
+  assert.ok(res.ok,`30D backtest route failed: ${res.status} ${raw.slice(0,1500)}`);
   const body=JSON.parse(raw);
   assert.equal(body.source,'dreamdex-agent-replay');
   assert.ok(Number.isFinite(body.markets),'markets count missing');
   assert.ok(Array.isArray(body.ruleStats),'ruleStats missing');
-  console.log(`backtest route smoke passed in ${((Date.now()-started)/1000).toFixed(1)}s: ${body.markets} markets, ${body.candidateMarkets} candidates, ${body.trades} trades`);
+  assert.ok(body.origin?.operatorId!==undefined&&body.origin?.venueId,'backtest did not resolve a DreamDEX rolling series');
+  assert.ok(elapsed<55_000,`30D backtest took ${(elapsed/1000).toFixed(1)}s, too close to the 60s route limit`);
+  console.log(`30D backtest route smoke passed in ${(elapsed/1000).toFixed(1)}s: ${body.markets} markets, ${body.candidateMarkets} candidates, ${body.trades} trades, operator ${body.origin.operatorId}`);
 }
 main().catch(e=>{console.error(e);process.exit(1)});
