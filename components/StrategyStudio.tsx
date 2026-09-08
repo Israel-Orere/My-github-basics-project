@@ -68,7 +68,7 @@ function ChartView({data}:{data:ChartData}){
 
 export default function StrategyStudio({initialPrompt,onDraft,onConfirm}:Props){
   const[messages,setMessages]=useState<ChatMessage[]>([{id:1,role:'assistant',content:welcome}]),[input,setInput]=useState(initialPrompt),[draft,setDraft]=useState<StrategySpec|null>(null),[reply,setReply]=useState<Reply|null>(null),[transcript,setTranscript]=useState(''),[busy,setBusy]=useState(false),[chartBusy,setChartBusy]=useState(false),[chart,setChart]=useState<ChartData|null>(null),[chartError,setChartError]=useState(''),[error,setError]=useState(''),[confirmed,setConfirmed]=useState(false);
-  const needsClarification=!!reply?.needsClarification||!!draft?.interpretation?.needsClarification,canConfirm=!!draft&&!needsClarification&&draft.compiler==='agent'&&!busy;
+  const needsClarification=!!reply?.needsClarification||!!draft?.interpretation?.needsClarification,canConfirm=!!draft&&!needsClarification&&draft.compiler==='agent'&&!busy,chartTimeframes=chart?.availableTimeframes||[];
 
   async function loadChart(strategy:StrategySpec,timeframe?:IndicatorTimeframe){setChartBusy(true);setChartError('');try{const r=await fetch('/api/chart',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({strategy,timeframe,limit:72}),cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Chart unavailable.');setChart(d)}catch(e:any){setChartError(e.message||'Chart unavailable.')}finally{setChartBusy(false)}}
 
@@ -88,7 +88,7 @@ export default function StrategyStudio({initialPrompt,onDraft,onConfirm}:Props){
       </div>
 
       <div className={styles.visualColumn}>
-        <div className={styles.visualHead}><div><small>LIVE STRATEGY CANVAS</small><h3>{draft?`${draft.asset} setup · ${chart?.timeframe||draft.window}`:'Chart appears after the first interpretation'}</h3></div>{chart?.availableTimeframes?.length>0&&<div className={styles.timeframes}>{chart.availableTimeframes.map(tf=><button key={tf} className={chart.timeframe===tf?styles.activeTf:''} onClick={()=>draft&&loadChart(draft,tf)} disabled={chartBusy}>{tf}</button>)}</div>}</div>
+        <div className={styles.visualHead}><div><small>LIVE STRATEGY CANVAS</small><h3>{draft?`${draft.asset} setup · ${chart?.timeframe||draft.window}`:'Chart appears after the first interpretation'}</h3></div>{chartTimeframes.length>0&&<div className={styles.timeframes}>{chartTimeframes.map(tf=><button key={tf} className={chart?.timeframe===tf?styles.activeTf:''} onClick={()=>draft&&loadChart(draft,tf)} disabled={chartBusy}>{tf}</button>)}</div>}</div>
         {chartBusy&&!chart&&<div className={styles.chartEmpty}>Loading completed DreamDEX spot candles and mapping the draft rules…</div>}
         {!chartBusy&&!chart&&!chartError&&<div className={styles.chartEmpty}><b>No final compile required.</b><span>As soon as DreamForge understands the first draft, this panel will draw the live underlying market, rolling ranges, indicator overlays and technical setup markers.</span></div>}
         {chartError&&<div className={styles.chartError}>{chartError}</div>}
