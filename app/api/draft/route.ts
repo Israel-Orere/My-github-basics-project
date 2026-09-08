@@ -1,5 +1,5 @@
 import {NextResponse} from 'next/server';
-import {compileStrategyWithAgent} from '@/lib/strategy-agent';
+import {compileStrategyResilient} from '@/lib/strategy-compiler';
 
 type ChatMessage={role:'user'|'assistant';content:string};
 
@@ -21,7 +21,7 @@ export async function POST(req:Request){
     const messages=Array.isArray(body.messages)?body.messages:[];
     if(!messages.some(m=>m?.role==='user'&&String(m.content||'').trim()))return NextResponse.json({error:'Tell DreamForge what you want to trade first.'},{status:400});
     const prompt=transcript(messages);
-    const strategy=await compileStrategyWithAgent(prompt);
+    const strategy=await compileStrategyResilient(prompt);
     const i=strategy.interpretation;
     return NextResponse.json({
       strategy,
