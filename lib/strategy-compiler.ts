@@ -1,5 +1,6 @@
 import {compileStrategyWithAgent} from './strategy-agent';
 import {compileStrategyDeterministically} from './deterministic-strategy-parser';
+import {repairLocalStrategy} from './local-strategy-repair';
 import type {StrategySpec} from './types';
 
 function normalizeForLocalCompiler(prompt:string){
@@ -13,7 +14,8 @@ export async function compileStrategyResilient(prompt:string):Promise<StrategySp
   const result=await compileStrategyWithAgent(prompt);
   if(result.compiler!=='deterministic-fallback')return result;
 
-  const local=compileStrategyDeterministically(normalizeForLocalCompiler(prompt));
+  const normalized=normalizeForLocalCompiler(prompt);
+  const local=repairLocalStrategy(normalized,compileStrategyDeterministically(normalized));
   const note='The AI gateway is currently unavailable, so DreamForge used its local deterministic compiler for supported rules instead of dropping your indicators.';
   const interpretation=local.interpretation?{
     ...local.interpretation,
