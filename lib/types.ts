@@ -56,7 +56,7 @@ export type StrategySpec={
  sizing:{baseUsd:number;afterWinUsd:number;afterLossUsd:number};
  risk:{maxLossUsd:number;maxTrades:number;durationHours:number};
  interpretation?:StrategyInterpretation;
- compiler?:'agent'|'deterministic-fallback';
+ compiler?:'agent'|'deterministic-local'|'deterministic-fallback';
 };
 
 export type MarketSnapshot={id:string;symbol:string;asset:Asset;window:Window;upPrice:number;downPrice:number;status:'TRADING'|'LOCKED'|'UNKNOWN';closesAt?:string};
