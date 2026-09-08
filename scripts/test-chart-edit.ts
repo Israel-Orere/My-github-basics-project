@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {applyChartStrategyEdit} from '../lib/chart-strategy-edit';
+import type {StrategySpec} from '../lib/types';
+
+const base:StrategySpec={name:'BTC test',asset:'BTC',window:'15m',side:'UP',trigger:{maxEntryPrice:.58,streakSide:'UP',streakLength:2},conditionGroups:[{logic:'ALL',conditions:[{type:'SETTLEMENT_STREAK',side:'UP',length:2,label:'Wait for 2 consecutive UP settlements'},{type:'COMPARE',left:{kind:'RSI',period:14,timeframe:'15m'},operator:'GTE',right:{kind:'CONSTANT',value:40},label:'RSI old lower'}]}],sizing:{baseUsd:8,afterWinUsd:8,afterLossUsd:3},risk:{maxLossUsd:25,maxTrades:12,durationHours:6},compiler:'deterministic-local',interpretation:{summary:'test',entry:[],execution:[],sizing:[],risk:[],assumptions:[],questions:[],confidence:1,needsClarification:false}};
+let s=applyChartStrategyEdit(base,{type:'rsiBand',period:14,low:45,high:58,timeframe:'15m'});
+let cs=s.conditionGroups!.flatMap(g=>g.conditions);
+assert.equal(s.compiler,'deterministic-local');assert.equal(s.interpretation?.needsClarification,false);assert.equal(cs.filter(c=>c.type==='COMPARE'&&(c.left.kind==='RSI'||c.right.kind==='RSI')).length,2);assert.ok(cs.some(c=>c.type==='SETTLEMENT_STREAK'));
+s=applyChartStrategyEdit(s,{type:'maRelation',kind:'EMA',fast:20,slow:50,direction:'above',timeframe:'15m'});cs=s.conditionGroups!.flatMap(g=>g.conditions);assert.ok(cs.some(c=>c.type==='COMPARE'&&c.left.kind==='EMA'&&c.right.kind==='EMA'));
+s=applyChartStrategyEdit(s,{type:'priceRange',low:79000,high:81000,timeframe:'15m'});cs=s.conditionGroups!.flatMap(g=>g.conditions);assert.equal(cs.filter(c=>c.type==='COMPARE'&&((c.left.kind==='PRICE'&&c.right.kind==='CONSTANT')||(c.right.kind==='PRICE'&&c.left.kind==='CONSTANT'))).length,2);
+s=applyChartStrategyEdit(s,{type:'rangePosition',period:30,lowPct:0,highPct:25,timeframe:'15m'});cs=s.conditionGroups!.flatMap(g=>g.conditions);assert.ok(cs.some(c=>c.type==='COMPARE'&&(c.left.kind==='RANGE_POSITION'||c.right.kind==='RANGE_POSITION')));assert.ok(cs.some(c=>c.type==='COMPARE'&&(c.left.kind==='HIGHEST_HIGH'||c.right.kind==='HIGHEST_HIGH')));
+s=applyChartStrategyEdit(s,{type:'clearTechnical'});cs=s.conditionGroups!.flatMap(g=>g.conditions);assert.ok(cs.every(c=>c.type==='SETTLEMENT_STREAK'||c.type==='TIME_WINDOW'));assert.equal(s.interpretation?.needsClarification,false,'settlement streak remains a valid signal after technical reset');
+const onlyTime:StrategySpec={...base,conditionGroups:[{logic:'ALL',conditions:[{type:'TIME_WINDOW',timezone:'UTC',startMinute:540,endMinute:960,label:'Trade 09:00-16:00 UTC'}]}]};const cleared=applyChartStrategyEdit(onlyTime,{type:'clearTechnical'});assert.equal(cleared.interpretation?.needsClarification,true,'time window alone must not become an always-on strategy');
+console.log(`chart strategy edit tests passed: ${cs.length} condition remains after reset`);
