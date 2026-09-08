@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {compileStrategyDeterministically} from '../lib/deterministic-strategy-parser';
+import {repairLocalStrategy} from '../lib/local-strategy-repair';
+
+const prompt=`Trade BTC 15m UP contracts only after 2 consecutive UP settlements. Current price must be inside the highest high and lowest low of the previous 20 completed candles. RSI(14) must be between 42 and 60. EMA20 must be above EMA50. Current volume must be above its 20-period SMA. Only buy UP at 58 cents or less. Risk $8 initially, use $8 after wins and $3 after losses. Stop after losing $25 or after 12 trades.`;
+
+const s=repairLocalStrategy(prompt,compileStrategyDeterministically(prompt));
+assert.equal(s.compiler,'deterministic-local');
+assert.equal(s.asset,'BTC');
+assert.equal(s.window,'15m');
+assert.equal(s.side,'UP');
+assert.equal(s.interpretation?.needsClarification,false,(s.interpretation?.questions||[]).join(' | '));
+assert.equal(s.trigger.streakLength,2);
+assert.equal(s.trigger.streakSide,'UP');
+assert.ok(Math.abs((s.trigger.maxEntryPrice||0)-.58)<1e-9);
+assert.equal(s.sizing.baseUsd,8);
+assert.equal(s.sizing.afterWinUsd,8);
+assert.equal(s.sizing.afterLossUsd,3);
+assert.equal(s.risk.maxLossUsd,25);
+assert.equal(s.risk.maxTrades,12);
+const conditions=s.conditionGroups?.flatMap(g=>g.conditions)||[];
+const exprs=conditions.flatMap(c=>c.type==='TREND'?[c.expr]:c.type==='COMPARE'||c.type==='CROSS'?[c.left,c.right]:[]);
+const kinds=exprs.map(e=>e.kind);
+assert.ok(conditions.some(c=>c.type==='SETTLEMENT_STREAK'&&c.length===2));
+assert.ok(kinds.includes('RSI'));
+assert.ok(kinds.filter(k=>k==='EMA').length>=2);
+assert.ok(kinds.includes('VOLUME'));
+assert.ok(exprs.some(e=>e.kind==='SMA'&&e.source==='VOLUME'&&e.period===20));
+assert.ok(exprs.some(e=>e.kind==='HIGHEST_HIGH'&&e.period===20&&e.offsetBars===1));
+assert.ok(exprs.some(e=>e.kind==='LOWEST_LOW'&&e.period===20&&e.offsetBars===1));
+console.log(`local compiler regression passed: ${conditions.length} conditions, ${s.interpretation?.confidence} confidence`);

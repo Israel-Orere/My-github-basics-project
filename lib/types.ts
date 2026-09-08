@@ -7,7 +7,7 @@ export type CrossDirection='ABOVE'|'BELOW';
 export type SeriesSource='PRICE'|'RSI'|'VOLUME';
 
 export type ValueExpr={
-  kind:'CONSTANT'|'PRICE'|'OPEN'|'HIGH'|'LOW'|'VOLUME'|'RSI'|'SMA'|'EMA'|'MACD'|'MACD_SIGNAL'|'ATR'|'ROC'|'STOCH_K'|'STOCH_D'|'BB_UPPER'|'BB_MIDDLE'|'BB_LOWER'|'VWAP'|'OBV';
+  kind:'CONSTANT'|'PRICE'|'OPEN'|'HIGH'|'LOW'|'VOLUME'|'RSI'|'SMA'|'EMA'|'MACD'|'MACD_SIGNAL'|'ATR'|'ROC'|'STOCH_K'|'STOCH_D'|'BB_UPPER'|'BB_MIDDLE'|'BB_LOWER'|'VWAP'|'OBV'|'HIGHEST_HIGH'|'LOWEST_LOW'|'RANGE_WIDTH'|'RANGE_POSITION';
   timeframe?:IndicatorTimeframe;
   value?:number;
   period?:number;
@@ -56,7 +56,7 @@ export type StrategySpec={
  sizing:{baseUsd:number;afterWinUsd:number;afterLossUsd:number};
  risk:{maxLossUsd:number;maxTrades:number;durationHours:number};
  interpretation?:StrategyInterpretation;
- compiler?:'agent'|'deterministic-fallback';
+ compiler?:'agent'|'deterministic-local'|'deterministic-fallback';
 };
 
 export type MarketSnapshot={id:string;symbol:string;asset:Asset;window:Window;upPrice:number;downPrice:number;status:'TRADING'|'LOCKED'|'UNKNOWN';closesAt?:string};

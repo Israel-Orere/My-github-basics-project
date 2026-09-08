@@ -5,7 +5,7 @@ export type BarsByTimeframe=Partial<Record<IndicatorTimeframe,SpotBar[]>>;
 export type ConditionResult={label:string;passed:boolean;detail:string};
 
 const tfSec:Record<IndicatorTimeframe,number>={"1m":60,"5m":300,"15m":900,"1h":3600,"4h":14400};
-const key=(e:ValueExpr)=>JSON.stringify({...e,multiplier:undefined,addend:undefined,offsetBars:undefined});
+const key=(e:ValueExpr)=>JSON.stringify({...e,multiplier:undefined,addend:undefined,offsetBars:e.kind==='RANGE_POSITION'?e.offsetBars:undefined});
 const finite=(n:number)=>Number.isFinite(n);
 function sma(src:number[],period:number){const out=Array(src.length).fill(NaN);let sum=0,valid=0;for(let i=0;i<src.length;i++){const v=src[i];if(finite(v)){sum+=v;valid++}if(i>=period){const old=src[i-period];if(finite(old)){sum-=old;valid--}}if(i>=period-1&&valid===period)out[i]=sum/period}return out}
 function ema(src:number[],period:number){const out=Array(src.length).fill(NaN);if(period<1)return out;const k=2/(period+1),seed:number[]=[];let prev=NaN;for(let i=0;i<src.length;i++){const v=src[i];if(!finite(v))continue;if(!finite(prev)){seed.push(v);if(seed.length===period){prev=seed.reduce((a,b)=>a+b,0)/period;out[i]=prev}}else{prev=v*k+prev*(1-k);out[i]=prev}}return out}
@@ -13,6 +13,8 @@ function rsi(src:number[],period:number){const out=Array(src.length).fill(NaN);i
 function atr(bars:SpotBar[],period:number){const tr=bars.map((b,i)=>i===0?b.high-b.low:Math.max(b.high-b.low,Math.abs(b.high-bars[i-1].close),Math.abs(b.low-bars[i-1].close)));const out=Array(bars.length).fill(NaN);if(tr.length<period)return out;let v=tr.slice(0,period).reduce((a,b)=>a+b,0)/period;out[period-1]=v;for(let i=period;i<tr.length;i++){v=(v*(period-1)+tr[i])/period;out[i]=v}return out}
 function roc(src:number[],period:number){return src.map((v,i)=>i>=period&&finite(src[i-period])&&src[i-period]!==0?((v/src[i-period])-1)*100:NaN)}
 function rollingStd(src:number[],period:number){const out=Array(src.length).fill(NaN);for(let i=period-1;i<src.length;i++){const w=src.slice(i-period+1,i+1);if(w.some(v=>!finite(v)))continue;const mean=w.reduce((a,b)=>a+b,0)/period;out[i]=Math.sqrt(w.reduce((a,b)=>a+(b-mean)**2,0)/period)}return out}
+function rollingMax(src:number[],period:number){const out=Array(src.length).fill(NaN);if(period<1)return out;for(let i=period-1;i<src.length;i++){let v=-Infinity;for(let j=i-period+1;j<=i;j++)if(finite(src[j]))v=Math.max(v,src[j]);out[i]=v===-Infinity?NaN:v}return out}
+function rollingMin(src:number[],period:number){const out=Array(src.length).fill(NaN);if(period<1)return out;for(let i=period-1;i<src.length;i++){let v=Infinity;for(let j=i-period+1;j<=i;j++)if(finite(src[j]))v=Math.min(v,src[j]);out[i]=v===Infinity?NaN:v}return out}
 function stochastic(bars:SpotBar[],period:number,smoothK:number,smoothD:number){const raw=Array(bars.length).fill(NaN);for(let i=period-1;i<bars.length;i++){let hi=-Infinity,lo=Infinity;for(let j=i-period+1;j<=i;j++){hi=Math.max(hi,bars[j].high);lo=Math.min(lo,bars[j].low)}raw[i]=hi===lo?50:((bars[i].close-lo)/(hi-lo))*100}const k=sma(raw,Math.max(1,smoothK)),d=sma(k,Math.max(1,smoothD));return{k,d}}
 function vwap(bars:SpotBar[],period:number){const pv=bars.map(b=>((b.high+b.low+b.close)/3)*b.volume),vol=bars.map(b=>b.volume),out=Array(bars.length).fill(NaN);let ps=0,vs=0;for(let i=0;i<bars.length;i++){ps+=pv[i];vs+=vol[i];if(i>=period){ps-=pv[i-period];vs-=vol[i-period]}if(i>=period-1&&vs>0)out[i]=ps/vs}return out}
 function obv(bars:SpotBar[]){const out=Array(bars.length).fill(0);for(let i=1;i<bars.length;i++)out[i]=out[i-1]+(bars[i].close>bars[i-1].close?bars[i].volume:bars[i].close<bars[i-1].close?-bars[i].volume:0);return out}
@@ -38,11 +40,16 @@ export function createStrategyEvaluator(strategy:StrategySpec,barsByTf:BarsByTim
   else if(e.kind==='ROC')out=roc(closes,e.period||1);
   else if(e.kind==='STOCH_K'||e.kind==='STOCH_D'){const st=stochastic(bars,e.period||14,e.smoothK||3,e.smoothD||3);out=e.kind==='STOCH_K'?st.k:st.d}
   else if(e.kind==='BB_MIDDLE'||e.kind==='BB_UPPER'||e.kind==='BB_LOWER'){const period=e.period||20,mid=sma(closes,period),sd=rollingStd(closes,period),mult=e.stdDev??2;out=mid.map((v,i)=>e.kind==='BB_MIDDLE'?v:e.kind==='BB_UPPER'?v+mult*sd[i]:v-mult*sd[i])}
-  else if(e.kind==='VWAP')out=vwap(bars,e.period||20);else out=obv(bars);
+  else if(e.kind==='VWAP')out=vwap(bars,e.period||20);
+  else if(e.kind==='HIGHEST_HIGH')out=rollingMax(bars.map(b=>b.high),e.period||20);
+  else if(e.kind==='LOWEST_LOW')out=rollingMin(bars.map(b=>b.low),e.period||20);
+  else if(e.kind==='RANGE_WIDTH'){const hi=rollingMax(bars.map(b=>b.high),e.period||20),lo=rollingMin(bars.map(b=>b.low),e.period||20);out=hi.map((v,i)=>finite(v)&&finite(lo[i])?v-lo[i]:NaN)}
+  else if(e.kind==='RANGE_POSITION'){const period=e.period||20,rangeOffset=Math.max(0,e.offsetBars||0),highs=bars.map(b=>b.high),lows=bars.map(b=>b.low);out=Array(bars.length).fill(NaN);for(let i=0;i<bars.length;i++){const end=i-rangeOffset,start=end-period+1;if(start<0||end<0)continue;let hi=-Infinity,lo=Infinity;for(let j=start;j<=end;j++){hi=Math.max(hi,highs[j]);lo=Math.min(lo,lows[j])}if(finite(hi)&&finite(lo)&&hi>lo)out[i]=((bars[i].close-lo)/(hi-lo))*100}}
+  else out=obv(bars);
   seriesCache.set(k,out);return out;
  }
  function indexBefore(e:ValueExpr,time:number){const bars=barsFor(e),step=tfSec[e.timeframe||strategy.window];let lo=0,hi=bars.length-1,ans=-1;while(lo<=hi){const mid=(lo+hi)>>1;if(bars[mid].time+step<=time){ans=mid;lo=mid+1}else hi=mid-1}return ans}
- function val(e:ValueExpr,time:number,back=0){if(e.kind==='CONSTANT')return (e.value??NaN)*(e.multiplier??1)+(e.addend??0);const i=indexBefore(e,time)-(e.offsetBars||0)-back;if(i<0)return NaN;const raw=series(e)[i];return finite(raw)?raw*(e.multiplier??1)+(e.addend??0):NaN}
+ function val(e:ValueExpr,time:number,back=0){if(e.kind==='CONSTANT')return (e.value??NaN)*(e.multiplier??1)+(e.addend??0);const shift=e.kind==='RANGE_POSITION'?0:(e.offsetBars||0),i=indexBefore(e,time)-shift-back;if(i<0)return NaN;const raw=series(e)[i];return finite(raw)?raw*(e.multiplier??1)+(e.addend??0):NaN}
  function localClock(time:number,timezone:string){const minuteKey=Math.floor(time/60),k=`${timezone}:${minuteKey}`,cached=clockCache.get(k);if(cached)return cached;try{const parts=new Intl.DateTimeFormat('en-US',{timeZone:timezone,weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(time*1000));const get=(t:string)=>parts.find(p=>p.type===t)?.value||'';const days:Record<string,number>={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6},v={minute:Number(get('hour'))*60+Number(get('minute')),day:days[get('weekday')]};clockCache.set(k,v);return v}catch{return{minute:-1,day:-1}}}
  function evaluateCondition(c:StrategyCondition,time:number,priorSettlements:('UP'|'DOWN')[]):ConditionResult{
   if(c.type==='SETTLEMENT_STREAK'){const recent=priorSettlements.slice(-c.length),raw=recent.length===c.length&&recent.every(x=>x===c.side),passed=applyNegate(raw,c.negate);return{label:c.label,passed,detail:passed?`Settlement rule satisfied.`:`Need ${c.negate?'a break in ':''}${c.length} consecutive ${c.side} settlements.`}}
