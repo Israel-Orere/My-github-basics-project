@@ -18,6 +18,7 @@ jobs:
       - run: npm run test:strategy
       - run: npm run test:local-compiler
       - run: npm run test:chart-edit
+      - run: npm run test:live-readiness
       - run: npm run test:dreamdex
       - run: npm run test:chart-data
       - run: npm run test:event-history
