@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {compileStrategyDeterministically} from '../lib/deterministic-strategy-parser';
+import {repairLocalStrategy} from '../lib/local-strategy-repair';
 
 const prompt=`Trade BTC 15m UP contracts only after 2 consecutive UP settlements. Current price must be inside the highest high and lowest low of the previous 20 completed candles. RSI(14) must be between 42 and 60. EMA20 must be above EMA50. Current volume must be above its 20-period SMA. Only buy UP at 58 cents or less. Risk $8 initially, use $8 after wins and $3 after losses. Stop after losing $25 or after 12 trades.`;
 
-const s=compileStrategyDeterministically(prompt);
+const s=repairLocalStrategy(prompt,compileStrategyDeterministically(prompt));
 assert.equal(s.compiler,'deterministic-local');
 assert.equal(s.asset,'BTC');
 assert.equal(s.window,'15m');
