@@ -49,4 +49,29 @@ assert.equal(evaluationStepSeconds(clock),60,'time windows should be evaluated m
 const transformed:StrategySpec={...base,conditionGroups:[{logic:'ALL',conditions:[{type:'COMPARE',left:{kind:'PRICE',timeframe:'1m'},operator:'GT',right:{kind:'EMA',timeframe:'1m',period:5,source:'PRICE',multiplier:1.01,addend:0},label:'Price 1% above EMA'}]}]};
 assert.equal(typeof createStrategyEvaluator(transformed,{'1m':bars}).evaluate(70*60,[]).passed,'boolean');
 
+const rangeFixture:SpotBar[]=Array.from({length:30},(_,i)=>({time:i*60,open:100,high:110,low:90,close:100,volume:100}));
+rangeFixture[29]={...rangeFixture[29],open:96,high:101,low:95,close:96};
+const insidePreviousRange:StrategySpec={...base,conditionGroups:[{logic:'ALL',conditions:[
+ {type:'COMPARE',left:{kind:'PRICE',timeframe:'1m'},operator:'LTE',right:{kind:'HIGHEST_HIGH',timeframe:'1m',period:20,offsetBars:1},label:'Inside prior 20-bar high'},
+ {type:'COMPARE',left:{kind:'PRICE',timeframe:'1m'},operator:'GTE',right:{kind:'LOWEST_LOW',timeframe:'1m',period:20,offsetBars:1},label:'Inside prior 20-bar low'}
+]}]};
+const rangeEval=createStrategyEvaluator(insidePreviousRange,{'1m':rangeFixture});
+assert.equal(rangeEval.evaluate(30*60,[]).passed,true,'current close should be inside the previous 20-bar high-low range');
+const outsideRange=[...rangeFixture];outsideRange[29]={...outsideRange[29],high:121,close:120};
+assert.equal(createStrategyEvaluator(insidePreviousRange,{'1m':outsideRange}).evaluate(30*60,[]).passed,false,'current close above the previous range high must fail');
+
+const lowerQuarter:StrategySpec={...base,conditionGroups:[{logic:'ALL',conditions:[
+ {type:'COMPARE',left:{kind:'RANGE_POSITION',timeframe:'1m',period:20,offsetBars:1},operator:'GTE',right:{kind:'CONSTANT',value:0},label:'Not below prior range'},
+ {type:'COMPARE',left:{kind:'RANGE_POSITION',timeframe:'1m',period:20,offsetBars:1},operator:'LTE',right:{kind:'CONSTANT',value:25},label:'Lower quarter of prior range'}
+]}]};
+assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':rangeFixture}).evaluate(30*60,[]).passed,true,'96 is 30% of a 90-110 range? fixture should be adjusted below');
+const lowerQuarterFixture=[...rangeFixture];lowerQuarterFixture[29]={...lowerQuarterFixture[29],open:94,high:96,low:93,close:94};
+assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':lowerQuarterFixture}).evaluate(30*60,[]).passed,true,'94 is 20% into the previous 90-110 range');
+const upperHalfFixture=[...rangeFixture];upperHalfFixture[29]={...upperHalfFixture[29],open:104,high:106,low:103,close:104};
+assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':upperHalfFixture}).evaluate(30*60,[]).passed,false,'104 is outside the lower quarter of the previous range');
+
+const rangeWidth:StrategySpec={...base,conditionGroups:[{logic:'ALL',conditions:[{type:'COMPARE',left:{kind:'RANGE_WIDTH',timeframe:'1m',period:20,offsetBars:1},operator:'EQ',right:{kind:'CONSTANT',value:20},label:'Prior range width 20'}]}]};
+assert.equal(createStrategyEvaluator(rangeWidth,{'1m':rangeFixture}).evaluate(30*60,[]).passed,true,'rolling range width should equal highest high minus lowest low');
+assert.ok(indicatorWarmup(lowerQuarter)>=60,'rolling-range lookback participates in warmup calculation');
+
 console.log('complex strategy-engine tests passed');
