@@ -17,6 +17,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:strategy
       - run: npm run test:dreamdex
+      - run: npm run test:chart-data
       - run: npm run test:event-history
       - run: npm run build
       - name: Verify deployed production complex-agent compiler
