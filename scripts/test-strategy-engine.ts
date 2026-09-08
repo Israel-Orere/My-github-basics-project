@@ -64,7 +64,7 @@ const lowerQuarter:StrategySpec={...base,conditionGroups:[{logic:'ALL',condition
  {type:'COMPARE',left:{kind:'RANGE_POSITION',timeframe:'1m',period:20,offsetBars:1},operator:'GTE',right:{kind:'CONSTANT',value:0},label:'Not below prior range'},
  {type:'COMPARE',left:{kind:'RANGE_POSITION',timeframe:'1m',period:20,offsetBars:1},operator:'LTE',right:{kind:'CONSTANT',value:25},label:'Lower quarter of prior range'}
 ]}]};
-assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':rangeFixture}).evaluate(30*60,[]).passed,true,'96 is 30% of a 90-110 range? fixture should be adjusted below');
+assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':rangeFixture}).evaluate(30*60,[]).passed,false,'96 is 30% into a 90-110 range and must fail a lower-25% rule');
 const lowerQuarterFixture=[...rangeFixture];lowerQuarterFixture[29]={...lowerQuarterFixture[29],open:94,high:96,low:93,close:94};
 assert.equal(createStrategyEvaluator(lowerQuarter,{'1m':lowerQuarterFixture}).evaluate(30*60,[]).passed,true,'94 is 20% into the previous 90-110 range');
 const upperHalfFixture=[...rangeFixture];upperHalfFixture[29]={...upperHalfFixture[29],open:104,high:106,low:103,close:104};
